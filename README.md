@@ -1,10 +1,10 @@
-# Collector Anonymizer
+# Anonymizing AWS Transform Discovery Tool Exports for Regulated Customers
 
 Anonymize sensitive data in AWS Discovery Collector export zip files so they can be shared with third parties (e.g., AWS migration teams) without exposing customer infrastructure details. De-anonymize the results after AWS Transform processing to restore original values.
 
 ## Disclaimer
 
-You are solely responsible for reviewing the outputs of Collector Anonymizer for accuracy. AWS makes no representations or warranties about your use of the AWS Transform Discovery Tool Collector Anonymizer.
+You are solely responsible for reviewing the outputs of Discovery Tool Anonymizer for accuracy. AWS makes no representations or warranties about your use of the AWS Transform Discovery Tool Collector Anonymizer.
 
 ## Platform Support
 
