@@ -68,6 +68,15 @@ def _default_mapping_path(output_path: Path, input_path: Path) -> Path:
     return output_path.parent / f"SENSITIVE_{input_path.stem}_mapping.json"
 
 
+def _format_size(num_bytes: int) -> str:
+    """Format a byte count as a human-readable string (e.g. ``340.5 MB``)."""
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.1f} {unit}"
+        size /= 1024
+
+
 
 def run_anonymize(
     input_path: Path,
@@ -143,7 +152,12 @@ def run_anonymize(
     # Build generators once so counters persist across all files
     shared_generators = build_csv_generators()
 
-    for filepath, content_bytes in files.items():
+    total_files = len(files)
+    for index, (filepath, content_bytes) in enumerate(files.items(), start=1):
+        logger.info(
+            "Starting %s (%d of %d, %s)",
+            filepath, index, total_files, _format_size(len(content_bytes)),
+        )
         lower = filepath.lower()
         try:
             if lower.endswith(".csv"):
@@ -285,7 +299,12 @@ def _deanonymize_zip(
     files_processed = 0
     files_skipped = 0
 
-    for filepath, content_bytes in files.items():
+    total_files = len(files)
+    for index, (filepath, content_bytes) in enumerate(files.items(), start=1):
+        logger.info(
+            "Starting %s (%d of %d, %s)",
+            filepath, index, total_files, _format_size(len(content_bytes)),
+        )
         lower_fp = filepath.lower()
         try:
             if lower_fp.endswith(".csv"):
