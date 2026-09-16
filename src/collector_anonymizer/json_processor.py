@@ -18,6 +18,8 @@ from collector_anonymizer.generators import (
     MACAddressGenerator,
     ServerIDGenerator,
     anonymize_fqdn,
+    anonymize_ip_field,
+    deanonymize_ip_field,
 )
 from collector_anonymizer.mapping_store import MappingStore
 
@@ -54,18 +56,6 @@ def _build_generators() -> Dict[str, object]:
     }
 
 
-def _is_ipv6(value: str) -> bool:
-    """Return True if *value* looks like an IPv6 address."""
-    import ipaddress as _ipaddress
-    if ":" not in value:
-        return False
-    try:
-        _ipaddress.IPv6Address(value)
-        return True
-    except ValueError:
-        return False
-
-
 def _anonymize_hostname_value(value: str, mapping: MappingStore, generators: Dict[str, object]) -> str:
     """Anonymize a hostname or FQDN value, splitting FQDNs into host + domain."""
     if "." in value and not value.replace(".", "").isdigit():
@@ -74,10 +64,8 @@ def _anonymize_hostname_value(value: str, mapping: MappingStore, generators: Dic
 
 
 def _anonymize_ip_value(value: str, mapping: MappingStore, generators: Dict[str, object]) -> str:
-    """Anonymize an IP address, detecting IPv4 vs IPv6."""
-    if _is_ipv6(value):
-        return mapping.get_or_create("ipv6_addresses", value, generators["ipv6_addresses"].generate)
-    return mapping.get_or_create("ip_addresses", value, generators["ip_addresses"].generate)
+    """Anonymize an IP field, handling single or multi-IP (space/comma) values."""
+    return anonymize_ip_field(value, mapping, generators)
 
 
 def _traverse_and_anonymize(obj: Any, mapping: MappingStore, generators: Dict[str, object]) -> Any:
@@ -135,7 +123,7 @@ def _traverse_and_deanonymize(obj: Any, mapping: MappingStore) -> Any:
             if key in _HOSTNAME_KEYS and isinstance(value, str) and value.strip():
                 result[key] = _deanonymize_value(value, mapping, ["hostnames", "domains"])
             elif key in _IP_KEYS and isinstance(value, str) and value.strip():
-                result[key] = _deanonymize_value(value, mapping, ["ip_addresses", "ipv6_addresses"])
+                result[key] = deanonymize_ip_field(value, mapping)
             elif key in _MAC_KEYS and isinstance(value, str) and value.strip():
                 result[key] = _deanonymize_value(value, mapping, ["mac_addresses"])
             elif key in _GENERIC_HOSTNAME_KEYS and isinstance(value, str) and value.strip():

@@ -13,6 +13,11 @@ import sys
 from pathlib import Path
 
 from collector_anonymizer.anonymizer import run_anonymize, run_deanonymize
+from collector_anonymizer.zip_handler import MAX_TOTAL_UNCOMPRESSED_SIZE
+
+# Bytes per gigabyte, used to convert the --max-uncompressed-size-gb flag.
+_BYTES_PER_GB = 1024 ** 3
+_DEFAULT_MAX_UNCOMPRESSED_GB = MAX_TOTAL_UNCOMPRESSED_SIZE / _BYTES_PER_GB
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,6 +54,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path for the anonymized output file. Defaults to {input_name}_anonymized.zip.",
     )
     anon_parser.add_argument(
+        "--max-uncompressed-size-gb",
+        required=False,
+        type=float,
+        default=_DEFAULT_MAX_UNCOMPRESSED_GB,
+        help=(
+            "Maximum total uncompressed size of the input zip, in GB "
+            f"(default: {_DEFAULT_MAX_UNCOMPRESSED_GB:g}). Raise this for large "
+            "exports from trusted sources."
+        ),
+    )
+    anon_parser.add_argument(
         "--log-level",
         required=False,
         default="INFO",
@@ -76,6 +92,17 @@ def build_parser() -> argparse.ArgumentParser:
         required=False,
         default=None,
         help="Path for the de-anonymized output file. Defaults to {input_name}_deanonymized.{ext}.",
+    )
+    deanon_parser.add_argument(
+        "--max-uncompressed-size-gb",
+        required=False,
+        type=float,
+        default=_DEFAULT_MAX_UNCOMPRESSED_GB,
+        help=(
+            "Maximum total uncompressed size of the input zip, in GB "
+            f"(default: {_DEFAULT_MAX_UNCOMPRESSED_GB:g}). Ignored for .xlsx "
+            "input. Raise this for large exports from trusted sources."
+        ),
     )
     deanon_parser.add_argument(
         "--log-level",
@@ -145,11 +172,17 @@ def main(argv: list[str] | None = None) -> int:
     logger = logging.getLogger(__name__)
 
     try:
+        max_uncompressed_size = int(args.max_uncompressed_size_gb * _BYTES_PER_GB)
+
         if args.command == "anonymize":
             input_path = Path(args.input)
             output_path = Path(args.output) if args.output else None
             logger.info("Starting anonymization of %s", input_path)
-            result = run_anonymize(input_path, output_path)
+            result = run_anonymize(
+                input_path,
+                output_path,
+                max_uncompressed_size=max_uncompressed_size,
+            )
             if result == 0:
                 print(
                     "\n"
@@ -171,10 +204,15 @@ def main(argv: list[str] | None = None) -> int:
             mapping_path = Path(args.mapping)
             output_path = Path(args.output) if args.output else None
             logger.info("Starting de-anonymization of %s", input_path)
-            return run_deanonymize(input_path, mapping_path, output_path)
+            return run_deanonymize(
+                input_path,
+                mapping_path,
+                output_path,
+                max_uncompressed_size=max_uncompressed_size,
+            )
 
     except Exception:
-        logger.error("Unexpected error during %s", args.command)
+        logger.exception("Unexpected error during %s", args.command)
         return 1
 
     return 0

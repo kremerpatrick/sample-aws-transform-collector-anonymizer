@@ -23,6 +23,8 @@ from collector_anonymizer.generators import (
     ServerIDGenerator,
     ServiceAccountGenerator,
     anonymize_fqdn,
+    anonymize_ip_field,
+    deanonymize_ip_field,
 )
 from collector_anonymizer.mapping_store import MappingStore
 
@@ -119,18 +121,6 @@ def _build_generators() -> Dict[str, object]:
     return {cat: cls() for cat, cls in _GENERATORS.items()}
 
 
-def _is_ipv6(value: str) -> bool:
-    """Return True if *value* looks like an IPv6 address."""
-    import ipaddress as _ipaddress
-    if ":" not in value:
-        return False
-    try:
-        _ipaddress.IPv6Address(value)
-        return True
-    except ValueError:
-        return False
-
-
 import re
 
 _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}$")
@@ -223,35 +213,15 @@ def anonymize_csv(
                         value, mapping, generators["hostnames"], generators["domains"]
                     )
                 elif category == "ip_addresses":
-                    # Check for IPv6 or MAC that ended up in an IP column
-                    if _is_ipv6(value):
-                        new_row[col] = mapping.get_or_create(
-                            "ipv6_addresses", value, generators["ipv6_addresses"].generate
-                        )
-                    elif _is_mac(value):
+                    # A MAC address that landed in an IP column is handled as a
+                    # MAC; everything else (single IP, IPv6, or a whitespace-/
+                    # comma-separated list of IPs) is tokenized per-IP.
+                    if _is_mac(value):
                         new_row[col] = mapping.get_or_create(
                             "mac_addresses", value, generators["mac_addresses"].generate
                         )
-                    elif "," in value:
-                        # Comma-separated IPs (e.g. dns_servers)
-                        parts = [v.strip() for v in value.split(",")]
-                        anon_parts = []
-                        for part in parts:
-                            if not part:
-                                anon_parts.append(part)
-                            elif _is_ipv6(part):
-                                anon_parts.append(mapping.get_or_create(
-                                    "ipv6_addresses", part, generators["ipv6_addresses"].generate
-                                ))
-                            else:
-                                anon_parts.append(mapping.get_or_create(
-                                    "ip_addresses", part, generators["ip_addresses"].generate
-                                ))
-                        new_row[col] = ", ".join(anon_parts)
                     else:
-                        new_row[col] = mapping.get_or_create(
-                            category, value, gen.generate
-                        )
+                        new_row[col] = anonymize_ip_field(value, mapping, generators)
                 elif category == "ipv6_addresses":
                     new_row[col] = mapping.get_or_create(
                         "ipv6_addresses", value, generators["ipv6_addresses"].generate
@@ -301,26 +271,18 @@ def deanonymize_csv(content: str, mapping: MappingStore) -> str:
                 new_row[col] = value
             elif col in SENSITIVE_COLUMNS:
                 category = SENSITIVE_COLUMNS[col]
-                if category == "ip_addresses" and "," in value:
-                    # Comma-separated IPs (e.g. dns_servers)
-                    parts = [v.strip() for v in value.split(",")]
-                    orig_parts = []
-                    for part in parts:
-                        if not part:
-                            orig_parts.append(part)
-                        else:
-                            orig = mapping.reverse_lookup("ip_addresses", part)
-                            if orig is None:
-                                orig = mapping.reverse_lookup("ipv6_addresses", part)
-                            orig_parts.append(orig if orig is not None else part)
-                    new_row[col] = ", ".join(orig_parts)
+                if category == "ip_addresses":
+                    # Tokenize per-IP (handles single, whitespace-, and
+                    # comma-separated values). Fall back to MAC lookup for a
+                    # single MAC that was anonymized from an IP column.
+                    restored = deanonymize_ip_field(value, mapping)
+                    if restored == value:
+                        mac_orig = mapping.reverse_lookup("mac_addresses", value)
+                        if mac_orig is not None:
+                            restored = mac_orig
+                    new_row[col] = restored
                 else:
                     original = mapping.reverse_lookup(category, value)
-                    # Also check ipv6 and mac categories for IP columns
-                    if original is None and category == "ip_addresses":
-                        original = mapping.reverse_lookup("ipv6_addresses", value)
-                    if original is None and category == "ip_addresses":
-                        original = mapping.reverse_lookup("mac_addresses", value)
                     new_row[col] = original if original is not None else value
             elif col in PATH_COLUMNS:
                 new_row[col] = _deanonymize_path(value, mapping)
