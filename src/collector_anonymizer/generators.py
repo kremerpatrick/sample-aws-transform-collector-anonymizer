@@ -10,6 +10,7 @@ random salts to prevent offline reversal.
 import hashlib
 import ipaddress
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Dict
 
@@ -314,3 +315,78 @@ def anonymize_fqdn(
     # Store the full FQDN mapping so reverse lookup works on the complete string
     mapping.get_or_create("hostnames", key, lambda _: fqdn)
     return fqdn
+
+
+# ---------------------------------------------------------------------------
+# Multi-value IP field helpers
+# ---------------------------------------------------------------------------
+
+# Splits a field into IP tokens and the separators between them, capturing the
+# separators so the original spacing/commas can be reproduced exactly on rejoin.
+# Example: "1.1.1.1, 2.2.2.2  3.3.3.3" -> ["1.1.1.1", ", ", "2.2.2.2", "  ", "3.3.3.3"]
+_IP_FIELD_SPLIT_RE = re.compile(r"([,\s]+)")
+
+
+def _looks_like_ipv6(value: str) -> bool:
+    """Return True if *value* is a valid IPv6 address."""
+    if ":" not in value:
+        return False
+    try:
+        ipaddress.IPv6Address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_separator(token: str) -> bool:
+    """Return True if *token* is a run of commas/whitespace (a separator)."""
+    return bool(token) and _IP_FIELD_SPLIT_RE.fullmatch(token) is not None
+
+
+def anonymize_ip_field(value: str, mapping, generators: Dict[str, object]) -> str:
+    """Anonymize an IP field that may hold one or more IPs.
+
+    Handles single IPs as well as whitespace- and/or comma-separated lists of
+    IPs in a single field. Each IP token is anonymized independently (IPv4 and
+    IPv6 routed to their respective categories) and the original separators are
+    preserved on rejoin. Non-IP tokens fall back to the IPv4 category, matching
+    the historical single-value behaviour.
+    """
+    parts = _IP_FIELD_SPLIT_RE.split(value)
+    out = []
+    for token in parts:
+        if not token or _is_separator(token):
+            out.append(token)
+        elif _looks_like_ipv6(token):
+            out.append(
+                mapping.get_or_create(
+                    "ipv6_addresses", token, generators["ipv6_addresses"].generate
+                )
+            )
+        else:
+            out.append(
+                mapping.get_or_create(
+                    "ip_addresses", token, generators["ip_addresses"].generate
+                )
+            )
+    return "".join(out)
+
+
+def deanonymize_ip_field(value: str, mapping) -> str:
+    """Reverse an IP field that may hold one or more IPs.
+
+    Mirror of :func:`anonymize_ip_field`: tokenizes on whitespace/commas,
+    reverse-looks-up each IP token (IPv4 then IPv6), preserves separators, and
+    leaves unmapped tokens unchanged.
+    """
+    parts = _IP_FIELD_SPLIT_RE.split(value)
+    out = []
+    for token in parts:
+        if not token or _is_separator(token):
+            out.append(token)
+        else:
+            original = mapping.reverse_lookup("ip_addresses", token)
+            if original is None:
+                original = mapping.reverse_lookup("ipv6_addresses", token)
+            out.append(original if original is not None else token)
+    return "".join(out)
