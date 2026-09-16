@@ -44,7 +44,10 @@ def _validate_zip_entry(info: zipfile.ZipInfo) -> List[str]:
     return errors
 
 
-def read_zip(path: Path) -> Dict[str, bytes]:
+def read_zip(
+    path: Path,
+    max_total_uncompressed_size: int = MAX_TOTAL_UNCOMPRESSED_SIZE,
+) -> Dict[str, bytes]:
     """Extract all files from a zip archive with safety validation.
 
     Validates each entry for path traversal sequences, excessive compression
@@ -52,6 +55,9 @@ def read_zip(path: Path) -> Dict[str, bytes]:
 
     Args:
         path: Path to the zip file.
+        max_total_uncompressed_size: Maximum allowed total uncompressed size in
+            bytes. Defaults to ``MAX_TOTAL_UNCOMPRESSED_SIZE`` (2 GB). Raise this
+            for large exports from trusted sources.
 
     Returns:
         Dictionary mapping internal file paths to their content as bytes.
@@ -81,10 +87,10 @@ def read_zip(path: Path) -> Dict[str, bytes]:
 
         # Total uncompressed size check
         total_size = sum(info.file_size for info in entries)
-        if total_size > MAX_TOTAL_UNCOMPRESSED_SIZE:
+        if total_size > max_total_uncompressed_size:
             raise ValueError(
                 f"Total uncompressed size ({total_size:,} bytes) exceeds the "
-                f"safety limit of {MAX_TOTAL_UNCOMPRESSED_SIZE:,} bytes."
+                f"safety limit of {max_total_uncompressed_size:,} bytes."
             )
 
         for info in entries:

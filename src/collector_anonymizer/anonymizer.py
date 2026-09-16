@@ -73,6 +73,7 @@ def run_anonymize(
     input_path: Path,
     output_path: Path | None = None,
     mapping_path: Path | None = None,
+    max_uncompressed_size: int | None = None,
 ) -> int:
     """Full anonymization pipeline. Returns 0 on success, 1 on failure.
 
@@ -119,9 +120,13 @@ def run_anonymize(
         mapping = MappingStore()
 
     # --- Read zip ---
+    read_kwargs = (
+        {} if max_uncompressed_size is None
+        else {"max_total_uncompressed_size": max_uncompressed_size}
+    )
     try:
-        files = read_zip(input_path)
-    except (FileNotFoundError, zipfile.BadZipFile) as exc:
+        files = read_zip(input_path, **read_kwargs)
+    except (FileNotFoundError, zipfile.BadZipFile, ValueError) as exc:
         logger.error("Failed to read zip: %s", exc)
         return 1
 
@@ -203,6 +208,7 @@ def run_deanonymize(
     input_path: Path,
     mapping_path: Path,
     output_path: Path | None = None,
+    max_uncompressed_size: int | None = None,
 ) -> int:
     """Full de-anonymization pipeline (zip or xlsx). Returns 0 on success, 1 on failure.
 
@@ -236,7 +242,9 @@ def run_deanonymize(
     lower = str(input_path).lower()
 
     if lower.endswith(".zip"):
-        return _deanonymize_zip(input_path, mapping, output_path, start_time)
+        return _deanonymize_zip(
+            input_path, mapping, output_path, start_time, max_uncompressed_size
+        )
     elif lower.endswith(".xlsx"):
         return _deanonymize_excel(input_path, mapping, output_path, start_time)
     else:
@@ -251,6 +259,7 @@ def _deanonymize_zip(
     mapping: MappingStore,
     output_path: Path | None,
     start_time: float,
+    max_uncompressed_size: int | None = None,
 ) -> int:
     """De-anonymize a zip file."""
     if not zipfile.is_zipfile(input_path):
@@ -262,9 +271,13 @@ def _deanonymize_zip(
     else:
         output_path = Path(output_path)
 
+    read_kwargs = (
+        {} if max_uncompressed_size is None
+        else {"max_total_uncompressed_size": max_uncompressed_size}
+    )
     try:
-        files = read_zip(input_path)
-    except (FileNotFoundError, zipfile.BadZipFile) as exc:
+        files = read_zip(input_path, **read_kwargs)
+    except (FileNotFoundError, zipfile.BadZipFile, ValueError) as exc:
         logger.error("Failed to read zip: %s", exc)
         return 1
 
